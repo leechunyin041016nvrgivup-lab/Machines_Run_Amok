@@ -20,4 +20,4 @@ export default class HomeScene extends Phaser.Scene {
       this.scene.start("GameScene");
     });
   }
-}//
+}
