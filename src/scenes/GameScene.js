@@ -6,8 +6,14 @@ export default class GameScene extends Phaser.Scene {
   }
 
   create() {
-    this.worldWidth = 2000;
-    this.worldHeight = 2000;
+    // ─── SCREEN SIZE (live reference) ─────────────────────
+    // Use this.scale.width/height everywhere instead of hardcoded values.
+    // These update automatically when the window resizes (RESIZE mode).
+    const W = this.scale.width;
+    const H = this.scale.height;
+
+    this.worldWidth  = Math.max(2000, W  * 2.5);
+    this.worldHeight = Math.max(2000, H * 2.5);
 
     this.physics.world.setBounds(0, 0, this.worldWidth, this.worldHeight);
     this.cameras.main.setBounds(0, 0, this.worldWidth, this.worldHeight);
@@ -17,13 +23,13 @@ export default class GameScene extends Phaser.Scene {
     // ─── PLAYER ───────────────────────────────────────────
     this.playerHP        = 100;
     this.playerMaxHP     = 100;
-    this.playerHPRegen   = 0;      // HP restored per second
-    this.playerLuck      = 0;      // % chance to drop bonus XP orb (0–100)
-    this.playerMagnet    = 120;    // loot attract radius in px
+    this.playerHPRegen   = 0;
+    this.playerLuck      = 0;
+    this.playerMagnet    = 120;
     this.lastDamageTime  = 0;
-    this.regenAccum      = 0;      // accumulated regen ms
+    this.regenAccum      = 0;
 
-    this.player = this.add.rectangle(1000, 1000, 40, 40, 0x00ff00);
+    this.player = this.add.rectangle(this.worldWidth / 2, this.worldHeight / 2, 40, 40, 0x00ff00);
     this.physics.add.existing(this.player);
     this.player.body.setCollideWorldBounds(true);
     this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
@@ -69,15 +75,15 @@ export default class GameScene extends Phaser.Scene {
     this.keys = this.input.keyboard.addKeys("W,A,S,D,ESC");
 
     // ─── GROUPS ───────────────────────────────────────────
-    this.enemies = this.physics.add.group();
-    this.loots   = this.physics.add.group();
-    this.bullets = this.physics.add.group();
+    this.enemies       = this.physics.add.group();
+    this.loots         = this.physics.add.group();
+    this.bullets       = this.physics.add.group();
     this.sniperBullets = this.physics.add.group();
     this.sniperWarnings = [];
 
     // ─── TIMERS ───────────────────────────────────────────
-    this.spawnEvent = this.time.addEvent({ delay: 800,           loop: true, callback: () => this.spawnEnemy() });
-    this.shootEvent = this.time.addEvent({ delay: this.fireRate,  loop: true, callback: () => this.shootNearestEnemy() });
+    this.spawnEvent = this.time.addEvent({ delay: 800,          loop: true, callback: () => this.spawnEnemy() });
+    this.shootEvent = this.time.addEvent({ delay: this.fireRate, loop: true, callback: () => this.shootNearestEnemy() });
 
     // ─── COLLISIONS ───────────────────────────────────────
     this.physics.add.overlap(this.player, this.enemies, (p, e) => {
@@ -100,7 +106,6 @@ export default class GameScene extends Phaser.Scene {
     });
 
     this.physics.add.overlap(this.sniperBullets, this.player, (objA, objB) => {
-      // Phaser can swap argument order — identify bullet explicitly
       const bullet = this.sniperBullets.contains(objA) ? objA : objB;
       if (!bullet || !bullet.active) return;
       bullet.destroy();
@@ -113,8 +118,22 @@ export default class GameScene extends Phaser.Scene {
     });
 
     // ─── UI ───────────────────────────────────────────────
-    this.uiContainer = this.add.container(0, 0).setScrollFactor(0);
-    const bg = this.add.rectangle(0, 0, 270, 250, 0x000000, 0.55).setOrigin(0);
+    this.buildUI();
+
+    // ─── RESIZE HANDLER ───────────────────────────────────
+    this.scale.on("resize", this.onResize, this);
+  }
+
+  // ── Rebuild HUD on resize so scroll-factor-0 elements stay correct ──
+  onResize() {
+    if (this.uiContainer) this.uiContainer.destroy();
+    this.buildUI();
+  }
+
+  buildUI() {
+    this.uiContainer = this.add.container(0, 0).setScrollFactor(0).setDepth(5);
+    const panelW = Math.min(280, this.scale.width * 0.38);
+    const bg = this.add.rectangle(0, 0, panelW, 250, 0x000000, 0.55).setOrigin(0);
 
     this.ui = {
       hp:     this.add.text(10, 10,  "", { fontSize: "13px", fill: "#ff6666" }),
@@ -131,14 +150,14 @@ export default class GameScene extends Phaser.Scene {
     const btnStyle = { fontSize: "11px", fill: "#ffff00", backgroundColor: "#333300", padding: { x: 4, y: 2 } };
 
     const lvlUpBtn = this.add.text(10, 182, "LEVEL UP", btnStyle)
-      .setScrollFactor(0).setDepth(1)
+      .setScrollFactor(0).setDepth(6)
       .setInteractive({ useHandCursor: true })
       .on("pointerover",  () => lvlUpBtn.setStyle({ fill: "#ffffff" }))
       .on("pointerout",   () => lvlUpBtn.setStyle({ fill: "#ffff00" }))
       .on("pointerdown",  () => this.levelUp());
 
     const addTimeBtn = this.add.text(140, 182, "[+1 MIN]", btnStyle)
-      .setScrollFactor(0).setDepth(1)
+      .setScrollFactor(0).setDepth(6)
       .setInteractive({ useHandCursor: true })
       .on("pointerover",  () => addTimeBtn.setStyle({ fill: "#ffffff" }))
       .on("pointerout",   () => addTimeBtn.setStyle({ fill: "#ffff00" }))
@@ -171,9 +190,8 @@ export default class GameScene extends Phaser.Scene {
   handleRegen(delta) {
     if (this.playerHPRegen <= 0) return;
     this.regenAccum += delta;
-    const tickMs = 1000; // regen ticks once per second
-    if (this.regenAccum >= tickMs) {
-      this.regenAccum -= tickMs;
+    if (this.regenAccum >= 1000) {
+      this.regenAccum -= 1000;
       this.playerHP = Math.min(this.playerMaxHP, this.playerHP + this.playerHPRegen);
     }
   }
@@ -242,33 +260,28 @@ export default class GameScene extends Phaser.Scene {
     this.enemies.add(e);
   }
 
-  // ── SNIPER ──────────────────────────────────────────────
-  // Keeps its distance (~350px), charges a red laser for
-  // 1.5s then fires a fast 40-dmg shot at the player.
   spawnSniper(x, y) {
     const e = this.add.rectangle(x, y, 22, 34, 0x9900ff);
     this.physics.add.existing(e);
-    e.type        = "sniper";
-    e.speed       = 60;
-    e.hp          = 35;
-    e.shotDamage  = 40;
-    e.preferDist  = 350;
+    e.type         = "sniper";
+    e.speed        = 60;
+    e.hp           = 35;
+    e.shotDamage   = 40;
+    e.preferDist   = 350;
     e.lastShotTime = 0;
     e.shotCooldown = 3500;
-    e.isCharging  = false;
+    e.isCharging   = false;
     this.enemies.add(e);
   }
 
   handleSniperAI(e) {
     const dist = Phaser.Math.Distance.Between(e.x, e.y, this.player.x, this.player.y);
 
-    // Stop moving while charging so aim is locked
     if (e.isCharging) {
       e.body.setVelocity(0, 0);
       return;
     }
 
-    // Kite: maintain preferred distance
     if (dist < e.preferDist - 50) {
       const angle = Phaser.Math.Angle.Between(this.player.x, this.player.y, e.x, e.y);
       e.body.setVelocity(Math.cos(angle) * e.speed, Math.sin(angle) * e.speed);
@@ -278,15 +291,11 @@ export default class GameScene extends Phaser.Scene {
       e.body.setVelocity(0, 0);
     }
 
-    // Fire cycle
     if (this.time.now - e.lastShotTime > e.shotCooldown) {
       e.isCharging = true;
-
-      // Lock target position at the moment of aiming — bullet won't track after this
       const targetX = this.player.x;
       const targetY = this.player.y;
 
-      // Red laser warning drawn toward locked target
       const laser = this.add.graphics();
       laser.lineStyle(2, 0xff0000, 0.7);
       laser.beginPath();
@@ -295,13 +304,11 @@ export default class GameScene extends Phaser.Scene {
       laser.strokePath();
       this.sniperWarnings.push(laser);
 
-      // Charge flicker
       this.time.addEvent({
         delay: 150, repeat: 4,
         callback: () => { if (e.active) e.fillColor = e.fillColor === 0xffffff ? 0x9900ff : 0xffffff; }
       });
 
-      // Fire after 1.5s toward the locked position, not current player pos
       this.time.delayedCall(1500, () => {
         laser.destroy();
         this.sniperWarnings = this.sniperWarnings.filter(l => l !== laser);
@@ -315,7 +322,6 @@ export default class GameScene extends Phaser.Scene {
         this.physics.add.existing(b);
         b.damage = e.shotDamage;
         this.sniperBullets.add(b);
-        // Fire toward the locked aim position, not this.player's current position
         const angle = Phaser.Math.Angle.Between(e.x, e.y, targetX, targetY);
         b.body.setVelocity(Math.cos(angle) * 600, Math.sin(angle) * 600);
         this.time.delayedCall(3000, () => { if (b.active) b.destroy(); });
@@ -354,10 +360,10 @@ export default class GameScene extends Phaser.Scene {
   }
 
   killEnemy(e) {
-    if (!e.active) return;          // already dead — break the recursion chain
+    if (!e.active) return;
     this.killCount++;
     const { x, y, type } = e;
-    e.destroy();                    // destroy FIRST so it's inactive before explode() loops enemies
+    e.destroy();
     if (type === "exploder") this.explode(x, y);
     else this.spawnLoot(x, y);
   }
@@ -429,7 +435,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // ═══════════════════════════════════════════════════════
-  // SHOOT (BULLET)
+  // SHOOT
   // ═══════════════════════════════════════════════════════
   shootNearestEnemy() {
     if (this.isPaused) return;
@@ -468,7 +474,6 @@ export default class GameScene extends Phaser.Scene {
 
   startEMP() {
     if (this.empEvent && !this.empEvent.hasDispatched) this.empEvent.remove(false);
-    this.empEvent = null;
     this.empEvent = this.time.addEvent({ delay: this.empRate, loop: true, callback: () => this.triggerEMP() });
   }
 
@@ -491,8 +496,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // ═══════════════════════════════════════════════════════
-  // GRENADE LAUNCHER
-  // Each level: +20 dmg, +20px blast radius, faster cooldown
+  // GRENADE
   // ═══════════════════════════════════════════════════════
   addGrenadeLevel() {
     if (!this.hasGrenade) {
@@ -510,7 +514,6 @@ export default class GameScene extends Phaser.Scene {
 
   startGrenade() {
     if (this.grenadeEvent && !this.grenadeEvent.hasDispatched) this.grenadeEvent.remove(false);
-    this.grenadeEvent = null;
     this.grenadeEvent = this.time.addEvent({ delay: this.grenadeRate, loop: true, callback: () => this.throwGrenade() });
   }
 
@@ -529,7 +532,6 @@ export default class GameScene extends Phaser.Scene {
     const g  = this.add.rectangle(this.player.x, this.player.y, 14, 14, 0x00ff66);
     this.physics.add.existing(g);
 
-    // Arc toward target — speed capped so it always lands in ~600ms
     const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, tx, ty);
     this.physics.moveTo(g, tx, ty, Math.min(dist / 0.6, 700));
 
@@ -545,12 +547,11 @@ export default class GameScene extends Phaser.Scene {
     const r   = this.grenadeRadius;
     const dmg = this.grenadeDamage;
 
-    const ring = this.add.circle(x, y, r,         0x00ff66, 0.25);
-    const core = this.add.circle(x, y, r * 0.4,   0xffffff, 0.6);
+    const ring = this.add.circle(x, y, r,       0x00ff66, 0.25);
+    const core = this.add.circle(x, y, r * 0.4, 0xffffff, 0.6);
     this.time.delayedCall(250, () => { ring.destroy(); core.destroy(); });
     this.cameras.main.shake(120, 0.015);
 
-    // Light friendly-fire so it's punishing but not instant death
     const pd = Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y);
     if (pd < r) {
       this.playerHP -= 15;
@@ -576,9 +577,12 @@ export default class GameScene extends Phaser.Scene {
     const l = this.add.rectangle(x, y, 10, 10, 0xffff00);
     this.physics.add.existing(l);
     this.loots.add(l);
-    // Luck: each 10 points = 10% chance for a bonus orb
     if (this.playerLuck > 0 && Phaser.Math.Between(1, 100) <= this.playerLuck) {
-      const bonus = this.add.rectangle(x + Phaser.Math.Between(-15, 15), y + Phaser.Math.Between(-15, 15), 10, 10, 0xffd700);
+      const bonus = this.add.rectangle(
+        x + Phaser.Math.Between(-15, 15),
+        y + Phaser.Math.Between(-15, 15),
+        10, 10, 0xffd700
+      );
       this.physics.add.existing(bonus);
       this.loots.add(bonus);
     }
@@ -588,7 +592,7 @@ export default class GameScene extends Phaser.Scene {
     this.loots.getChildren().forEach(l => {
       const d = Phaser.Math.Distance.Between(l.x, l.y, this.player.x, this.player.y);
       if (d < this.playerMagnet) this.physics.moveToObject(l, this.player, 250);
-      if (d < 20)  { l.destroy(); this.gainXP(1); }
+      if (d < 20) { l.destroy(); this.gainXP(1); }
     });
   }
 
@@ -606,66 +610,54 @@ export default class GameScene extends Phaser.Scene {
     this.level++;
     this.xpToNext += 25;
 
-    // ── AUTO STAT UPGRADES (every level) ──────────────────
-    this.playerMaxHP   += 10;                                         // +10 max HP per level
-    this.playerHP       = Math.min(this.playerHP + 10, this.playerMaxHP); // heal a bit too
-    this.playerHPRegen += 0.5;                                        // +0.5 HP/s per level
-    this.playerLuck    += 3;                                          // +3% luck per level
-    this.playerMagnet  += 15;                                         // +15px magnet per level
+    this.playerMaxHP   += 10;
+    this.playerHP       = Math.min(this.playerHP + 10, this.playerMaxHP);
+    this.playerHPRegen += 0.5;
+    this.playerLuck    += 3;
+    this.playerMagnet  += 15;
 
-    // ── WEAPON CHOICES ────────────────────────────────────
-    // Build the full pool: upgrades for owned weapons + new weapons not yet owned
     const weaponChoices = [];
-
-    // Always available: bullet upgrade
     weaponChoices.push({ text: "🔫  Bullet DMG +5",      effect: () => { this.bulletDamage += 5; } });
     weaponChoices.push({ text: "⚙️  Fire Rate +10%",      effect: () => { this.fireRate = Math.max(100, this.fireRate * 0.9); this.shootEvent.delay = this.fireRate; } });
 
-    // Sword: new or upgrade
-    if (!this.hasSword) {
-      weaponChoices.push({ text: "🗡  NEW  Orbiting Sword",  effect: () => { this.addSwordLevel(); } });
-    } else {
-      weaponChoices.push({ text: `🗡  Sword  Lv${this.swordLevel} → Lv${this.swordLevel + 1}  (+blade +dmg)`, effect: () => { this.addSwordLevel(); } });
-    }
+    if (!this.hasSword)   weaponChoices.push({ text: "🗡  NEW  Orbiting Sword",  effect: () => { this.addSwordLevel(); } });
+    else                  weaponChoices.push({ text: `🗡  Sword  Lv${this.swordLevel} → Lv${this.swordLevel + 1}  (+blade +dmg)`, effect: () => { this.addSwordLevel(); } });
 
-    // EMP: new or upgrade
-    if (!this.hasEMP) {
-      weaponChoices.push({ text: "⚡  NEW  EMP Pulse",        effect: () => { this.addEMPLevel(); } });
-    } else {
-      weaponChoices.push({ text: `⚡  EMP  Lv${this.empLevel} → Lv${this.empLevel + 1}  (+dmg +speed)`, effect: () => { this.addEMPLevel(); } });
-    }
+    if (!this.hasEMP)     weaponChoices.push({ text: "⚡  NEW  EMP Pulse",        effect: () => { this.addEMPLevel(); } });
+    else                  weaponChoices.push({ text: `⚡  EMP  Lv${this.empLevel} → Lv${this.empLevel + 1}  (+dmg +speed)`, effect: () => { this.addEMPLevel(); } });
 
-    // Grenade: new or upgrade
-    if (!this.hasGrenade) {
-      weaponChoices.push({ text: "💣  NEW  Grenade Launcher", effect: () => { this.addGrenadeLevel(); } });
-    } else {
-      weaponChoices.push({ text: `💣  Grenade  Lv${this.grenadeLevel} → Lv${this.grenadeLevel + 1}  (+dmg +radius)`, effect: () => { this.addGrenadeLevel(); } });
-    }
+    if (!this.hasGrenade) weaponChoices.push({ text: "💣  NEW  Grenade Launcher", effect: () => { this.addGrenadeLevel(); } });
+    else                  weaponChoices.push({ text: `💣  Grenade  Lv${this.grenadeLevel} → Lv${this.grenadeLevel + 1}  (+dmg +radius)`, effect: () => { this.addGrenadeLevel(); } });
 
     const shuffled = Phaser.Utils.Array.Shuffle([...weaponChoices]);
     const choices  = shuffled.slice(0, 3);
 
-    const overlay = this.add.rectangle(400, 300, 800, 600, 0x000000, 0.72)
+    // ── Dynamic screen centre ──────────────────────────────
+    const SW = this.scale.width;
+    const SH = this.scale.height;
+    const cx = SW / 2;
+    const cy = SH / 2;
+
+    const overlay = this.add.rectangle(cx, cy, SW, SH, 0x000000, 0.72)
       .setScrollFactor(0).setDepth(10);
 
-    // Show the auto-upgraded stats as a header note
-    const title = this.add.text(400, 130, "⬆  LEVEL UP!", {
+    const title = this.add.text(cx, cy - SH * 0.33, "⬆  LEVEL UP!", {
       fontSize: "30px", fill: "#ffff00", stroke: "#000000", strokeThickness: 4
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
 
-    const autoNote = this.add.text(400, 178,
+    const autoNote = this.add.text(cx, cy - SH * 0.22,
       `Auto: ❤️+10HP  💚+0.5 Regen  🍀+3% Luck  🧲+15 Magnet`,
       { fontSize: "13px", fill: "#aaffaa" }
     ).setOrigin(0.5).setScrollFactor(0).setDepth(11);
 
-    const subTitle = this.add.text(400, 210, "Choose a weapon upgrade:", {
+    const subTitle = this.add.text(cx, cy - SH * 0.15, "Choose a weapon upgrade:", {
       fontSize: "16px", fill: "#cccccc"
     }).setOrigin(0.5).setScrollFactor(0).setDepth(11);
 
     this.buttons = [overlay, title, autoNote, subTitle];
 
     choices.forEach((c, i) => {
-      const btn = this.add.text(400, 255 + i * 65, c.text, {
+      const btn = this.add.text(cx, cy - SH * 0.06 + i * 70, c.text, {
         fontSize: "18px", fill: "#ffffff",
         backgroundColor: "#1a2233",
         padding: { x: 20, y: 14 }
@@ -690,43 +682,53 @@ export default class GameScene extends Phaser.Scene {
     this.playerHP = 0;
     this.pauseGame();
 
-    const W = 800, H = 600;
+    // ── Always use live screen dimensions ─────────────────
+    const SW = this.scale.width;
+    const SH = this.scale.height;
+    const cx = SW / 2;
+    const cy = SH / 2;
+
     const sec    = Math.floor(this.gameTime / 1000);
     const mins   = Math.floor(sec / 60);
     const secs   = sec % 60;
     const timeStr = `${mins}m ${secs < 10 ? "0" : ""}${secs}s`;
 
-    // Build weapon summary lines
     const weaponLines = [];
     weaponLines.push(`❤️  Max HP ${this.playerMaxHP}  |  💚 Regen ${this.playerHPRegen.toFixed(1)}/s  |  🍀 Luck ${this.playerLuck}%  |  🧲 Magnet ${this.playerMagnet}px`);
     weaponLines.push(`🔫 Bullet    DMG ${this.bulletDamage}  |  Rate ${(this.fireRate / 1000).toFixed(1)}s`);
-    if (this.hasSword)    weaponLines.push(`🗡 Sword     Lv ${this.swordLevel}  |  ${3 + this.swordLevel - 1} blades  |  DMG ${5 + this.swordLevel * 2}/hit`);
-    if (this.hasEMP)      weaponLines.push(`⚡ EMP       Lv ${this.empLevel}  |  DMG ${this.empDamage}  |  Rate ${(this.empRate / 1000).toFixed(1)}s`);
-    if (this.hasGrenade)  weaponLines.push(`💣 Grenade   Lv ${this.grenadeLevel}  |  DMG ${this.grenadeDamage}  |  Radius ${this.grenadeRadius}px  |  Rate ${(this.grenadeRate / 1000).toFixed(1)}s`);
+    if (this.hasSword)   weaponLines.push(`🗡 Sword     Lv ${this.swordLevel}  |  ${3 + this.swordLevel - 1} blades  |  DMG ${5 + this.swordLevel * 2}/hit`);
+    if (this.hasEMP)     weaponLines.push(`⚡ EMP       Lv ${this.empLevel}  |  DMG ${this.empDamage}  |  Rate ${(this.empRate / 1000).toFixed(1)}s`);
+    if (this.hasGrenade) weaponLines.push(`💣 Grenade   Lv ${this.grenadeLevel}  |  DMG ${this.grenadeDamage}  |  Radius ${this.grenadeRadius}px  |  Rate ${(this.grenadeRate / 1000).toFixed(1)}s`);
 
-    const overlay = this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.88)
+    const overlay = this.add.rectangle(cx, cy, SW, SH, 0x000000, 0.88)
       .setScrollFactor(0).setDepth(20);
 
+    // Rows are positioned relative to the top-centre of the screen
+    const startY = SH * 0.08;
     const rows = [
-      { text: "💀  YOU DIED",                      y: 55,  style: { fontSize: "38px", fill: "#ff3333", stroke: "#000", strokeThickness: 6 } },
-      { text: `⏱  Time alive:   ${timeStr}`,       y: 115, style: { fontSize: "19px", fill: "#ffffff" } },
-      { text: `💀  Enemies killed:  ${this.killCount}`, y: 142, style: { fontSize: "19px", fill: "#ff8888" } },
-      { text: `💥  Total DMG dealt:  ${this.totalDmgDone}`, y: 169, style: { fontSize: "19px", fill: "#ffbb44" } },
-      { text: "────── Weapons ──────",              y: 208, style: { fontSize: "15px", fill: "#888888" } },
-      ...weaponLines.map((t, i) => ({ text: t,     y: 234 + i * 26, style: { fontSize: "13px", fill: "#ccffcc" } })),
+      { text: "💀  YOU DIED",                            y: startY,         style: { fontSize: "38px", fill: "#ff3333", stroke: "#000", strokeThickness: 6 } },
+      { text: `⏱  Time alive:   ${timeStr}`,             y: startY + 70,    style: { fontSize: "19px", fill: "#ffffff" } },
+      { text: `💀  Enemies killed:  ${this.killCount}`,  y: startY + 97,    style: { fontSize: "19px", fill: "#ff8888" } },
+      { text: `💥  Total DMG dealt:  ${this.totalDmgDone}`, y: startY + 124, style: { fontSize: "19px", fill: "#ffbb44" } },
+      { text: "────── Weapons ──────",                   y: startY + 163,   style: { fontSize: "15px", fill: "#888888" } },
+      ...weaponLines.map((t, i) => ({
+        text: t,
+        y: startY + 189 + i * 26,
+        style: { fontSize: "13px", fill: "#ccffcc" }
+      })),
     ];
 
     const deathUI = [overlay];
     rows.forEach(r => {
       deathUI.push(
-        this.add.text(W / 2, r.y, r.text, r.style)
+        this.add.text(cx, r.y, r.text, r.style)
           .setOrigin(0.5, 0).setScrollFactor(0).setDepth(21)
       );
     });
 
-    const btnY = 234 + weaponLines.length * 26 + 30;
+    const btnY = startY + 189 + weaponLines.length * 26 + 30;
 
-    const restartBtn = this.add.text(W / 2 - 100, btnY, "▶  RESTART", {
+    const restartBtn = this.add.text(cx - 100, btnY, "▶  RESTART", {
       fontSize: "20px", fill: "#00ff00", backgroundColor: "#003300", padding: { x: 18, y: 10 }
     })
     .setOrigin(0.5, 0).setScrollFactor(0).setDepth(21)
@@ -735,7 +737,7 @@ export default class GameScene extends Phaser.Scene {
     .on("pointerout",   () => restartBtn.setStyle({ fill: "#00ff00" }))
     .on("pointerdown",  () => this.scene.restart());
 
-    const menuBtn = this.add.text(W / 2 + 100, btnY, "🏠  MENU", {
+    const menuBtn = this.add.text(cx + 100, btnY, "🏠  MENU", {
       fontSize: "20px", fill: "#ffaa00", backgroundColor: "#332200", padding: { x: 18, y: 10 }
     })
     .setOrigin(0.5, 0).setScrollFactor(0).setDepth(21)
@@ -760,8 +762,8 @@ export default class GameScene extends Phaser.Scene {
   }
 
   resumeGame() {
-    if (this.pauseUI) this.pauseUI.forEach(b => b.destroy());
-    if (this.buttons) this.buttons.forEach(b => b.destroy());
+    if (this.pauseUI)  this.pauseUI.forEach(b => b.destroy());
+    if (this.buttons)  this.buttons.forEach(b => b.destroy());
     this.physics.resume();
     this.isPaused = false;
     this.spawnEvent.paused = false;
@@ -773,15 +775,20 @@ export default class GameScene extends Phaser.Scene {
   openPauseMenu() {
     if (this.isPaused) return;
     this.pauseGame();
+
+    // ── Centre on actual screen ────────────────────────────
+    const cx = this.scale.width  / 2;
+    const cy = this.scale.height / 2;
+
     this.pauseUI = [
-      this.add.text(400, 200, "CONTINUE", { fontSize: "22px", fill: "#ffffff" })
-        .setOrigin(0.5).setScrollFactor(0).setInteractive()
+      this.add.text(cx, cy - 50, "CONTINUE", { fontSize: "22px", fill: "#ffffff" })
+        .setOrigin(0.5).setScrollFactor(0).setDepth(15).setInteractive()
         .on("pointerdown", () => this.resumeGame()),
-      this.add.text(400, 245, "RESTART",  { fontSize: "22px", fill: "#ffaa00" })
-        .setOrigin(0.5).setScrollFactor(0).setInteractive()
+      this.add.text(cx, cy,      "RESTART",  { fontSize: "22px", fill: "#ffaa00" })
+        .setOrigin(0.5).setScrollFactor(0).setDepth(15).setInteractive()
         .on("pointerdown", () => this.scene.restart()),
-      this.add.text(400, 290, "QUIT",     { fontSize: "22px", fill: "#ff4444" })
-        .setOrigin(0.5).setScrollFactor(0).setInteractive()
+      this.add.text(cx, cy + 50, "QUIT",     { fontSize: "22px", fill: "#ff4444" })
+        .setOrigin(0.5).setScrollFactor(0).setDepth(15).setInteractive()
         .on("pointerdown", () => this.scene.start("HomeScene")),
     ];
   }
