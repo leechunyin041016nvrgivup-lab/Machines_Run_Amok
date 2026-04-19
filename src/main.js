@@ -12,7 +12,7 @@ const config = {
     arcade: { debug: false }
   },
   scale: {
-    mode:       Phaser.Scale.RESIZE,      // always fills the window
+    mode:       Phaser.Scale.RESIZE,      
     autoCenter: Phaser.Scale.CENTER_BOTH
   },
   scene: [HomeScene, GameScene]
