@@ -72,7 +72,6 @@ export default class GameScene extends Phaser.Scene {
     this.bossHP           = 0;
     this.bossSpawned      = false;
     this.bossDefeated     = false;
-    // Boss spawns 1 minute after all 4 enemy types are unlocked (≥180s → boss at ≥240s)
     this.bossSpawnTime    = 240; // seconds
 
     // ─── XP / LEVEL ───────────────────────────────────────
@@ -86,8 +85,12 @@ export default class GameScene extends Phaser.Scene {
     this.totalDmgDone = 0;
     this.isPaused     = false;
 
+    // ─── STATS PANEL ──────────────────────────────────────
+    this.statsOpen = false;
+    this.statsUI   = null;
+
     // ─── INPUT ────────────────────────────────────────────
-    this.keys = this.input.keyboard.addKeys("W,A,S,D,ESC,SHIFT");
+    this.keys = this.input.keyboard.addKeys("W,A,S,D,ESC,SHIFT,K");
 
     // ─── GROUPS ───────────────────────────────────────────
     this.enemies       = this.physics.add.group();
@@ -145,6 +148,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.bossUI)      { this.bossUI.forEach(o => o.destroy()); this.bossUI = null; }
     this.buildUI();
     if (this.boss && this.boss.active) this.buildBossUI();
+    if (this.statsOpen) this.openStatsPanel();
   }
 
   buildUI() {
@@ -168,7 +172,7 @@ export default class GameScene extends Phaser.Scene {
     const AVS  = 52;
     const BARW = 148;
     const BARH = 15;
-    const BARX = PAD + AVS + 18;  // +18 for icon labels
+    const BARX = PAD + AVS + 18;
     const BARY1 = PAD + 2;
     const BARY2 = BARY1 + BARH + 5;
     const BARY3 = BARY2 + BARH + 5;
@@ -178,11 +182,9 @@ export default class GameScene extends Phaser.Scene {
     const PANEL_W  = BARX + BARW + PAD;
     const PANEL_H  = SLOT_Y + SLOT_S + PAD;
 
-    // Panel bg
     const panelBg = this.add.graphics().setScrollFactor(0).setDepth(5);
     rr(panelBg, 0, 0, PANEL_W, PANEL_H, 8, 0x000000, 0.65);
 
-    // Avatar
     const avGfx = this.add.graphics().setScrollFactor(0).setDepth(6);
     rr(avGfx, PAD, PAD, AVS, AVS, 6, 0x003311, 0.95);
     rr(avGfx, PAD + 4, PAD + 4, AVS - 8, AVS - 8, 4, 0x00ff00, 0.9);
@@ -190,28 +192,23 @@ export default class GameScene extends Phaser.Scene {
       fontSize: "13px", fill: "#002200", fontStyle: "bold"
     }).setOrigin(0.5).setScrollFactor(0).setDepth(7);
 
-    // Bar backgrounds
     const barBg = this.add.graphics().setScrollFactor(0).setDepth(6);
     rr(barBg, BARX, BARY1, BARW, BARH, 3, 0x440000, 0.9);
     rr(barBg, BARX, BARY2, BARW, BARH, 3, 0x001133, 0.9);
     rr(barBg, BARX, BARY3, BARW, BARH, 3, 0x001133, 0.9);
 
-    // Bar fill graphics (redrawn each frame)
     this.uiBarFills = this.add.graphics().setScrollFactor(0).setDepth(7);
 
-    // Bar icon labels
     const iconStyle = { fontSize: "10px", fontStyle: "bold" };
     this.add.text(PAD + AVS + 3, BARY1 + 1, "HP", { ...iconStyle, fill: "#ff5555" }).setScrollFactor(0).setDepth(7);
     this.add.text(PAD + AVS + 3, BARY2 + 1, "XP", { ...iconStyle, fill: "#4488ff" }).setScrollFactor(0).setDepth(7);
     this.add.text(PAD + AVS + 3, BARY3 + 1, "EN", { ...iconStyle, fill: "#00ccff" }).setScrollFactor(0).setDepth(7);
 
-    // Bar value texts (centered on bar)
     const barTxtStyle = { fontSize: "10px", fill: "#ffffff", fontStyle: "bold" };
     this.ui.hpText     = this.add.text(BARX + BARW / 2, BARY1 + BARH / 2, "", barTxtStyle).setOrigin(0.5).setScrollFactor(0).setDepth(8);
     this.ui.xpText     = this.add.text(BARX + BARW / 2, BARY2 + BARH / 2, "", barTxtStyle).setOrigin(0.5).setScrollFactor(0).setDepth(8);
     this.ui.energyText = this.add.text(BARX + BARW / 2, BARY3 + BARH / 2, "", barTxtStyle).setOrigin(0.5).setScrollFactor(0).setDepth(8);
 
-    // Weapon slots
     const slotGfx = this.add.graphics().setScrollFactor(0).setDepth(6);
     this.ui.weaponSlots  = [];
     this.ui.weaponLabels = [];
@@ -241,7 +238,7 @@ export default class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setScrollFactor(0).setDepth(6);
 
     // ═══════════════════════════════════════════════════════
-    // TOP-RIGHT — Settings button
+    // TOP-RIGHT — [K] Stats button + Settings button
     // ═══════════════════════════════════════════════════════
     const settingsBg = this.add.graphics().setScrollFactor(0).setDepth(5);
     const SBX = SW - 44, SBY = 8, SBW = 36, SBH = 28;
@@ -252,6 +249,18 @@ export default class GameScene extends Phaser.Scene {
       .on("pointerout",  () => { settingsBg.clear(); rr(settingsBg, SBX, SBY, SBW, SBH, 6, 0x000000, 0.65); });
     this.add.text(SBX + SBW / 2, SBY + SBH / 2, "=", {
       fontSize: "16px", fill: "#cccccc", fontStyle: "bold"
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(6);
+
+    // [K] Stats button — left of settings button
+    const KBX = SBX - 44, KBY = 8, KBW = 36, KBH = 28;
+    const statsBtnBg = this.add.graphics().setScrollFactor(0).setDepth(5);
+    rr(statsBtnBg, KBX, KBY, KBW, KBH, 6, 0x001122, 0.75);
+    statsBtnBg.setInteractive(new Phaser.Geom.Rectangle(KBX, KBY, KBW, KBH), Phaser.Geom.Rectangle.Contains)
+      .on("pointerdown", () => this.toggleStatsPanel())
+      .on("pointerover", () => { statsBtnBg.clear(); rr(statsBtnBg, KBX, KBY, KBW, KBH, 6, 0x113355, 0.9); })
+      .on("pointerout",  () => { statsBtnBg.clear(); rr(statsBtnBg, KBX, KBY, KBW, KBH, 6, 0x001122, 0.75); });
+    this.add.text(KBX + KBW / 2, KBY + KBH / 2, "[K]", {
+      fontSize: "11px", fill: "#88ccff", fontStyle: "bold"
     }).setOrigin(0.5).setScrollFactor(0).setDepth(6);
 
     // ═══════════════════════════════════════════════════════
@@ -268,7 +277,7 @@ export default class GameScene extends Phaser.Scene {
       .on("pointerdown", () => this.levelUp());
   }
 
-  // ─── BOSS DEBUG UI (top-right) ────────────────────────
+  // ─── BOSS UI ──────────────────────────────────────────
   buildBossUI() {
     if (this.bossUI) this.bossUI.forEach(o => o.destroy());
     const SW = this.scale.width;
@@ -276,7 +285,7 @@ export default class GameScene extends Phaser.Scene {
 
     const bgW = 200, bgH = 56;
     const bx = SW - bgW - 8;
-    const by = SH - bgH - 34;   // above debug buttons
+    const by = SH - bgH - 34;
 
     const bg = this.add.graphics().setScrollFactor(0).setDepth(5);
     bg.fillStyle(0x220000, 0.82);
@@ -304,6 +313,151 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // ═══════════════════════════════════════════════════════
+  // STATS PANEL  (toggle with K or [K] button)
+  // ═══════════════════════════════════════════════════════
+  toggleStatsPanel() {
+    if (this.statsOpen) {
+      this.closeStatsPanel();
+    } else {
+      this.openStatsPanel();
+    }
+  }
+
+  openStatsPanel() {
+    this.closeStatsPanel();   // destroy stale panel first
+    this.statsOpen = true;
+
+    const SW = this.scale.width;
+    const SH = this.scale.height;
+
+    const PW = 320;
+    const PH = Math.min(SH - 20, 490);
+    const px = SW - PW - 8;
+    const py = 44;
+
+    const rr = (gfx, x, y, w, h, r, col, al = 1) => {
+      gfx.fillStyle(col, al);
+      gfx.fillRoundedRect(x, y, w, h, r);
+    };
+
+    const bg = this.add.graphics().setScrollFactor(0).setDepth(12);
+    rr(bg, px, py, PW, PH, 10, 0x000d1a, 0.93);
+    bg.lineStyle(1, 0x224466, 1);
+    bg.strokeRoundedRect(px, py, PW, PH, 10);
+
+    const items = [bg];
+    let TY = py + 10;
+    const TX = px + 14;
+    const LINE = 22;
+
+    const header = (text) => {
+      const t = this.add.text(TX, TY, text, {
+        fontSize: "12px", fill: "#55aaff", fontStyle: "bold"
+      }).setScrollFactor(0).setDepth(13);
+      items.push(t);
+      TY += LINE;
+    };
+
+    const row = (label, value, valColor = "#ffffff") => {
+      const lbl = this.add.text(TX, TY, label, {
+        fontSize: "12px", fill: "#888888"
+      }).setScrollFactor(0).setDepth(13);
+      const val = this.add.text(px + PW - 14, TY, value, {
+        fontSize: "12px", fill: valColor, fontStyle: "bold"
+      }).setOrigin(1, 0).setScrollFactor(0).setDepth(13);
+      items.push(lbl, val);
+      TY += LINE;
+    };
+
+    const divider = () => {
+      const g = this.add.graphics().setScrollFactor(0).setDepth(13);
+      g.lineStyle(1, 0x224466, 0.5);
+      g.lineBetween(TX, TY + 3, px + PW - 14, TY + 3);
+      items.push(g);
+      TY += 10;
+    };
+
+    // Title
+    const title = this.add.text(px + PW / 2, TY, "📊  PLAYER STATS", {
+      fontSize: "14px", fill: "#ffffff", fontStyle: "bold"
+    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(13);
+    items.push(title);
+    TY += LINE + 4;
+    divider();
+
+    // Core
+    header("── Core ─────────────────────────");
+    row("HP",           `${Math.max(0, Math.floor(this.playerHP))} / ${this.playerMaxHP}`,  "#ff6666");
+    row("HP Regen",     `${this.playerHPRegen.toFixed(1)} / sec`,                           "#44ff88");
+    row("Level",        `${this.level}`,                                                     "#ffdd55");
+    row("XP",           `${this.xp} / ${this.xpToNext}`,                                    "#4488ff");
+    row("Luck",         `${this.playerLuck}%`,                                               "#ffaaff");
+    row("Magnet",       `${this.playerMagnet} px`,                                           "#88ffff");
+    row("Energy",       `${Math.floor(this.energy)} / ${this.energyMax}`,                   "#00ccff");
+    row("Energy Regen", `${this.energyRegen} / sec`,                                         "#00aacc");
+    row("Move Speed",   `${this.moveSpeed}`,                                                 "#cccccc");
+    row("Run Speed",    `${this.runSpeed}`,                                                  "#aaffcc");
+    divider();
+
+    // Weapons
+    header("── Weapons ──────────────────────");
+    row("🔫 Bullet DMG",  `${this.bulletDamage}`,                       "#00ffff");
+    row("   Fire Rate",   `${(this.fireRate / 1000).toFixed(2)}s`,       "#00dddd");
+
+    if (this.hasSword) {
+      row("🗡  Sword Level",  `Lv ${this.swordLevel}`,                   "#ffffff");
+      row("   Blades",        `${3 + this.swordLevel - 1}`,              "#dddddd");
+      row("   Blade DMG",     `${5 + this.swordLevel * 2} / hit`,        "#cccccc");
+    } else {
+      row("🗡  Sword",  "Not unlocked",  "#444444");
+    }
+
+    if (this.hasEMP) {
+      row("⚡ EMP Level",  `Lv ${this.empLevel}`,                        "#88ffff");
+      row("   EMP DMG",    `${this.empDamage}`,                          "#66eeff");
+      row("   EMP Rate",   `${(this.empRate / 1000).toFixed(2)}s`,       "#55ddee");
+    } else {
+      row("⚡ EMP",  "Not unlocked",  "#444444");
+    }
+
+    if (this.hasGrenade) {
+      row("💣 Grenade Level",  `Lv ${this.grenadeLevel}`,                   "#88ff88");
+      row("   Gren DMG",       `${this.grenadeDamage}`,                      "#66ff66");
+      row("   Gren Radius",    `${this.grenadeRadius} px`,                   "#55ee55");
+      row("   Gren Rate",      `${(this.grenadeRate / 1000).toFixed(2)}s`,   "#44dd44");
+    } else {
+      row("💣 Grenade",  "Not unlocked",  "#444444");
+    }
+
+    divider();
+
+    // Session
+    header("── Session ───────────────────────");
+    const sec  = Math.floor(this.gameTime / 1000);
+    const mins = Math.floor(sec / 60);
+    const secs = sec % 60;
+    row("Time Alive",  `${mins}m ${secs < 10 ? "0" : ""}${secs}s`,  "#ffffff");
+    row("Kills",       `${this.killCount}`,                           "#ff8888");
+    row("Total DMG",   `${this.totalDmgDone}`,                        "#ffbb44");
+
+    TY += 4;
+    const hint = this.add.text(px + PW / 2, TY, "Press [K] or click [K] button to close", {
+      fontSize: "10px", fill: "#446688"
+    }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(13);
+    items.push(hint);
+
+    this.statsUI = items;
+  }
+
+  closeStatsPanel() {
+    if (this.statsUI) {
+      this.statsUI.forEach(o => o.destroy());
+      this.statsUI = null;
+    }
+    this.statsOpen = false;
+  }
+
+  // ═══════════════════════════════════════════════════════
   // UPDATE
   // ═══════════════════════════════════════════════════════
   update(time, delta) {
@@ -318,6 +472,15 @@ export default class GameScene extends Phaser.Scene {
     this.updateSwords();
     this.updateUI();
     this.checkBossSpawn();
+
+    // Toggle stats panel with K key
+    if (Phaser.Input.Keyboard.JustDown(this.keys.K)) this.toggleStatsPanel();
+
+    // Refresh stats panel live if it's open
+    if (this.statsOpen) {
+      this.closeStatsPanel();
+      this.openStatsPanel();
+    }
 
     if (Phaser.Input.Keyboard.JustDown(this.keys.ESC)) this.openPauseMenu();
   }
@@ -334,14 +497,12 @@ export default class GameScene extends Phaser.Scene {
   }
 
   spawnBoss() {
-    // ── Announce ──────────────────────────────────────────
     const SW = this.scale.width, SH = this.scale.height;
     const announce = this.add.text(SW / 2, SH * 0.3, "⚠️  BOSS INCOMING ⚠️", {
       fontSize: "28px", fill: "#ff0000", stroke: "#000", strokeThickness: 5
     }).setOrigin(0.5).setScrollFactor(0).setDepth(15);
     this.time.delayedCall(2500, () => announce.destroy());
 
-    // ── Spawn off-screen ──────────────────────────────────
     const pos = this.getSpawnPosition();
 
     const b = this.add.rectangle(pos.x, pos.y, 55, 55, 0xff2200);
@@ -352,23 +513,17 @@ export default class GameScene extends Phaser.Scene {
     b.hp      = this.bossMaxHP;
     b.maxHp   = this.bossMaxHP;
     b.isBoss  = true;
-
-    // ── Phase-1 stats ─────────────────────────────────────
-    b.phase       = 1;          // 1 = chase, 2 = aim-then-ram
-    b.speed       = 220;        // phase-1 chase speed
-
-    // ── Phase-2 state machine ─────────────────────────────
-    // States:  "chase" | "windup" | "ram" | "recover"
+    b.phase       = 1;
+    b.speed       = 220;
     b.p2State     = "chase";
-    b.p2Entered   = false;      // have we shown the enrage warning yet?
-    b.ramTargetX  = 0;          // locked aim target
+    b.p2Entered   = false;
+    b.ramTargetX  = 0;
     b.ramTargetY  = 0;
     b.ramAngle    = 0;
-    b.windupEnd   = 0;          // timestamp when windup finishes
-    b.recoverEnd  = 0;          // timestamp when recover finishes
-    b.laserLine   = null;       // warning laser graphic
+    b.windupEnd   = 0;
+    b.recoverEnd  = 0;
+    b.laserLine   = null;
 
-    // ── Floating label ────────────────────────────────────
     this.bossLabel = this.add.text(pos.x, pos.y - 38, "👹 BOSS", {
       fontSize: "13px", fill: "#ff4400", stroke: "#000", strokeThickness: 3
     }).setOrigin(0.5).setDepth(4);
@@ -376,9 +531,8 @@ export default class GameScene extends Phaser.Scene {
     this.boss = b;
     this.enemies.add(b);
 
-    // ── Contact damage (higher than normal enemies) ───────
     this.physics.add.overlap(this.player, b, () => {
-      const dmg = b.p2State === "ram" ? 35 : 20;   // ram hits harder
+      const dmg = b.p2State === "ram" ? 35 : 20;
       if (this.time.now - this.lastDamageTime > 400) {
         this.playerHP -= dmg;
         this.lastDamageTime = this.time.now;
@@ -393,7 +547,6 @@ export default class GameScene extends Phaser.Scene {
   handleBossAI(e) {
     const now = this.time.now;
 
-    // ── Phase transition: HP drops to ≤ 50% ──────────────
     if (e.phase === 1 && e.hp <= e.maxHp * 0.5) {
       e.phase   = 2;
       e.p2State = "windup";
@@ -410,48 +563,29 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // ─────────────────────────────────────────────────────
-    // PHASE 1 — fast straight chase
-    // ─────────────────────────────────────────────────────
     if (e.phase === 1) {
       this.physics.moveToObject(e, this.player, e.speed);
-    }
-
-    // ─────────────────────────────────────────────────────
-    // PHASE 2 — stop → aim → ram loop
-    // ─────────────────────────────────────────────────────
-    else {
+    } else {
       switch (e.p2State) {
-
-        // ── WINDUP: fully stopped, laser aims at player ──
         case "windup":
           e.body.setVelocity(0, 0);
-
-          // Draw/update warning laser each frame during windup
           if (e.laserLine) e.laserLine.destroy();
           e.laserLine = this.add.graphics();
-          // Flicker: alternate red ↔ white based on time
           const flickerColor = Math.floor(now / 120) % 2 === 0 ? 0xff0000 : 0xffffff;
           e.laserLine.lineStyle(3, flickerColor, 0.8);
           e.laserLine.beginPath();
           e.laserLine.moveTo(e.x, e.y);
-          // Extend laser far beyond player so it reads as a ray
           const laserAngle = Phaser.Math.Angle.Between(e.x, e.y, e.ramTargetX, e.ramTargetY);
           e.laserLine.lineTo(
             e.x + Math.cos(laserAngle) * 1200,
             e.y + Math.sin(laserAngle) * 1200
           );
           e.laserLine.strokePath();
-
-          // Keep re-locking target during first half of windup (tracking window),
-          // then freeze aim for the second half so player has a chance to dodge
           if (now < e.windupEnd - 600) {
             e.ramTargetX = this.player.x;
             e.ramTargetY = this.player.y;
             e.ramAngle   = Phaser.Math.Angle.Between(e.x, e.y, e.ramTargetX, e.ramTargetY);
           }
-
-          // Windup over → RAM
           if (now >= e.windupEnd) {
             if (e.laserLine) { e.laserLine.destroy(); e.laserLine = null; }
             e.p2State = "ram";
@@ -459,20 +593,16 @@ export default class GameScene extends Phaser.Scene {
           }
           break;
 
-        // ── RAM: dash through player at extreme speed ──
         case "ram":
           e.body.setVelocity(
             Math.cos(e.ramAngle) * 600,
             Math.sin(e.ramAngle) * 600
           );
-
           if (!e.ramStartTime) {
             e.ramStartTime = now;
             e.ramStartX    = e.x;
             e.ramStartY    = e.y;
           }
-
-          // Stop after travelling ~600px past start OR 1.2s — enough to blow through the player
           const travelDist = Phaser.Math.Distance.Between(e.x, e.y, e.ramStartX, e.ramStartY);
           if (travelDist > 600 || now - e.ramStartTime > 1200) {
             e.ramStartTime = 0;
@@ -485,7 +615,6 @@ export default class GameScene extends Phaser.Scene {
           }
           break;
 
-        // ── RECOVER: short pause, then wind up again ──────
         case "recover":
           e.body.setVelocity(0, 0);
           if (now >= e.recoverEnd) {
@@ -496,14 +625,10 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // ── Floating label ────────────────────────────────────
     if (this.bossLabel && this.bossLabel.active) {
       this.bossLabel.setPosition(e.x, e.y - 42);
-      // Colour-code label by phase
       this.bossLabel.setStyle({ fill: e.phase === 2 ? "#ff6600" : "#ff4400" });
     }
-
-    // ── Debug UI ──────────────────────────────────────────
     if (this.bossHPText) {
       const pct = Math.max(0, Math.floor((e.hp / e.maxHp) * 100));
       this.bossHPText.setText(`HP: ${Math.max(0, e.hp)} / ${e.maxHp}  (${pct}%)`);
@@ -514,16 +639,15 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  // Helper: begin a windup cycle — record locked target & end timestamp
   _bossStartWindup(e) {
     e.ramTargetX = this.player.x;
     e.ramTargetY = this.player.y;
     e.ramAngle   = Phaser.Math.Angle.Between(e.x, e.y, e.ramTargetX, e.ramTargetY);
-    e.windupEnd  = this.time.now + 1500;  // 1.5s aim window
+    e.windupEnd  = this.time.now + 1500;
   }
 
   // ═══════════════════════════════════════════════════════
-  // HP REGEN
+  // HP & ENERGY REGEN  (FIX #3)
   // ═══════════════════════════════════════════════════════
   handleRegen(delta) {
     // HP regen
@@ -534,26 +658,30 @@ export default class GameScene extends Phaser.Scene {
         this.playerHP = Math.min(this.playerMaxHP, this.playerHP + this.playerHPRegen);
       }
     }
-    // Energy regen — only when not sprinting
-    if (!this.isRunning) {
+
+    // Energy regen ONLY when SHIFT is fully released.
+    // Holding SHIFT (even at 0 energy) blocks all regen — player must let go first.
+    if (!this.keys.SHIFT.isDown) {
       this.energy = Math.min(this.energyMax, this.energy + this.energyRegen * (delta / 1000));
     }
   }
 
   // ═══════════════════════════════════════════════════════
-  // MOVEMENT
+  // MOVEMENT  (FIX #3 continued)
   // ═══════════════════════════════════════════════════════
   handleMovement(delta) {
     if (!this.player.body) return;
 
-    // Determine if sprinting: SHIFT held + moving + has energy
     const moving = this.keys.A.isDown || this.keys.D.isDown || this.keys.W.isDown || this.keys.S.isDown;
+
+    // Sprint only if SHIFT held AND moving AND energy > 0
     const wantRun = this.keys.SHIFT.isDown && moving && this.energy > 0;
 
     if (wantRun) {
       this.isRunning = true;
       this.energy = Math.max(0, this.energy - this.energyDrain * (delta / 1000));
     } else {
+      // SHIFT held but energy = 0 → still walking, no sprint
       this.isRunning = false;
     }
 
@@ -567,11 +695,12 @@ export default class GameScene extends Phaser.Scene {
     this.player.body.setVelocity(vx, vy);
     if (vx || vy) this.player.body.velocity.normalize().scale(spd);
 
-    // Tint player green→yellow→red based on energy level for quick visual feedback
     if (this.isRunning) {
       this.player.fillColor = 0x00ddff;
+    } else if (this.energy <= 0 && this.keys.SHIFT.isDown) {
+      this.player.fillColor = 0xff4400;   // red-orange = exhausted, SHIFT still held
     } else if (this.energy < 30) {
-      this.player.fillColor = 0xffaa00;
+      this.player.fillColor = 0xffaa00;   // orange = low energy
     } else {
       this.player.fillColor = 0x00ff00;
     }
@@ -951,40 +1080,27 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // ═══════════════════════════════════════════════════════
-  // LOOT — tiered drops per enemy type
+  // LOOT
   // ═══════════════════════════════════════════════════════
-  // Loot types:
-  //   "yellow"  = 1  XP  (small yellow box)
-  //   "green"   = 3  XP  (small green box)
-  //   "purple"  = 50 XP  (boss orb)
-
   spawnLootForType(x, y, type) {
     const roll = Phaser.Math.Between(1, 100);
 
     if (type === "basic") {
-      // 70% → 1 yellow, 30% → 2 yellow
       const count = roll <= 70 ? 1 : 2;
       for (let i = 0; i < count; i++) this.spawnOrb(x, y, "yellow");
-
     } else if (type === "spider") {
-      // 70% → 2 yellow, 30% → 3 yellow
       const count = roll <= 70 ? 2 : 3;
       for (let i = 0; i < count; i++) this.spawnOrb(x, y, "yellow");
-
     } else if (type === "exploder") {
-      // 70% → 1 green, 30% → 2 green
       const count = roll <= 70 ? 1 : 2;
       for (let i = 0; i < count; i++) this.spawnOrb(x, y, "green");
-
     } else if (type === "sniper") {
-      // 70% → 2 green, 30% → 3 green  (note: description said "70% drop 1 30% drop 2" but contextually matches 2/3)
       const count = roll <= 70 ? 2 : 3;
       for (let i = 0; i < count; i++) this.spawnOrb(x, y, "green");
     }
   }
 
   spawnBossLoot(x, y) {
-    // Always drops 1 purple orb = 50 XP
     this.spawnOrb(x, y, "purple");
   }
 
@@ -1001,7 +1117,6 @@ export default class GameScene extends Phaser.Scene {
     orb.orbColor = color;
     this.loots.add(orb);
 
-    // Luck bonus — extra orb of same type
     if (this.playerLuck > 0 && Phaser.Math.Between(1, 100) <= this.playerLuck) {
       const bx = x + Phaser.Math.Between(-25, 25);
       const by = y + Phaser.Math.Between(-25, 25);
@@ -1013,7 +1128,6 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
-  // Legacy fallback (kept for any future calls)
   spawnLoot(x, y) {
     this.spawnOrb(x, y, "yellow");
   }
@@ -1109,7 +1223,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // ═══════════════════════════════════════════════════════
-  // BOSS DEFEATED BANNER
+  // BOSS DEFEATED
   // ═══════════════════════════════════════════════════════
   showBossDefeated() {
     const SW = this.scale.width, SH = this.scale.height;
@@ -1204,7 +1318,6 @@ export default class GameScene extends Phaser.Scene {
     this.shootEvent.paused = true;
     if (this.empEvent)     this.empEvent.paused     = true;
     if (this.grenadeEvent) this.grenadeEvent.paused = true;
-    // Hide boss laser while paused
     if (this.boss && this.boss.laserLine) this.boss.laserLine.setVisible(false);
   }
 
@@ -1256,17 +1369,15 @@ export default class GameScene extends Phaser.Scene {
   }
 
   // ═══════════════════════════════════════════════════════
-  // UI
+  // UI UPDATE  (FIX #1 — gun slot now shows L1)
   // ═══════════════════════════════════════════════════════
   updateUI() {
     const sec  = Math.floor(this.gameTime / 1000);
     const mins = Math.floor(sec / 60);
     const secs = sec % 60;
 
-    // ── Timer ─────────────────────────────────────────────
     this.ui.time.setText(`${mins}:${secs < 10 ? "0" : ""}${secs}`);
 
-    // ── Bar fills ─────────────────────────────────────────
     if (this.uiBarFills) {
       const PAD  = 10;
       const AVS  = 52;
@@ -1279,41 +1390,40 @@ export default class GameScene extends Phaser.Scene {
 
       this.uiBarFills.clear();
 
-      // HP bar — red
       const hpPct = Math.max(0, Math.min(1, this.playerHP / this.playerMaxHP));
       const hpColor = hpPct > 0.5 ? 0x00cc44 : hpPct > 0.25 ? 0xffaa00 : 0xff2222;
       this.uiBarFills.fillStyle(hpColor, 0.9);
       this.uiBarFills.fillRoundedRect(BARX, BARY1, BARW * hpPct, BARH, 3);
 
-      // XP bar — blue
       const xpPct = Math.max(0, Math.min(1, this.xp / this.xpToNext));
       this.uiBarFills.fillStyle(0x2266ff, 0.9);
       this.uiBarFills.fillRoundedRect(BARX, BARY2, BARW * xpPct, BARH, 3);
 
-      // Energy bar — cyan, dim when empty
       const enPct = Math.max(0, Math.min(1, this.energy / this.energyMax));
       const enColor = this.isRunning ? 0x00eeff : (this.energy < 30 ? 0xff8800 : 0x00aacc);
       this.uiBarFills.fillStyle(enColor, 0.9);
       this.uiBarFills.fillRoundedRect(BARX, BARY3, BARW * enPct, BARH, 3);
     }
 
-    // ── Bar texts ─────────────────────────────────────────
     const hpRegen = this.playerHPRegen > 0 ? `  +${this.playerHPRegen.toFixed(1)}/s` : "";
     this.ui.hpText.setText(`${Math.max(0, Math.floor(this.playerHP))}/${this.playerMaxHP}${hpRegen}`);
     this.ui.xpText.setText(`${this.xp}/${this.xpToNext}  Lv${this.level}`);
-    const enSuffix = this.isRunning ? " RUN" : "";
+
+    // Energy label: show EMPTY if shift held but depleted (FIX #3 visual feedback)
+    const enSuffix = this.isRunning
+      ? " RUN"
+      : (this.keys.SHIFT.isDown && this.energy <= 0 ? " EMPTY" : "");
     this.ui.energyText.setText(`${Math.floor(this.energy)}/${this.energyMax}${enSuffix}`);
 
     // ── Weapon slots ──────────────────────────────────────
-    // Slot 0: always gun
-    // Slots 1-3: optional weapons
+    // FIX #1: Gun slot 0 now shows "L1" label (was blank before)
     const weapons = [
-      { icon: "gun",  lv: null,              active: true },
-      { icon: "sword",lv: this.swordLevel,   active: this.hasSword },
-      { icon: "emp",  lv: this.empLevel,     active: this.hasEMP },
-      { icon: "gren", lv: this.grenadeLevel, active: this.hasGrenade },
+      { icon: "gun",  lv: "L1",                                              active: true },
+      { icon: "sword",lv: this.hasSword   ? `L${this.swordLevel}`   : null,  active: this.hasSword },
+      { icon: "emp",  lv: this.hasEMP     ? `L${this.empLevel}`     : null,  active: this.hasEMP },
+      { icon: "gren", lv: this.hasGrenade ? `L${this.grenadeLevel}` : null,  active: this.hasGrenade },
     ];
-    const iconMap = { gun: ">>", sword: "†", emp: "~", gren: "o" };
+    const iconMap  = { gun: ">>", sword: "†", emp: "~", gren: "o" };
     const colorMap = { gun: "#00ffff", sword: "#ffffff", emp: "#88ffff", gren: "#88ff88" };
 
     weapons.forEach((w, i) => {
@@ -1322,7 +1432,7 @@ export default class GameScene extends Phaser.Scene {
       if (w.active) {
         slot.setText(iconMap[w.icon]);
         slot.setStyle({ fill: colorMap[w.icon], fontSize: "15px", fontStyle: "bold" });
-        label.setText(w.lv !== null ? `L${w.lv}` : "");
+        label.setText(w.lv !== null ? w.lv : "");
       } else {
         slot.setText("+");
         slot.setStyle({ fill: "#334455", fontSize: "15px" });
