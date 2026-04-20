@@ -1333,24 +1333,54 @@ export default class GameScene extends Phaser.Scene {
   }
 
   openPauseMenu() {
-    if (this.isPaused) return;
-    this.pauseGame();
+  if (this.isPaused) return;
+  this.pauseGame();
 
-    const cx = this.scale.width  / 2;
-    const cy = this.scale.height / 2;
+  const SW = this.scale.width;
+  const SH = this.scale.height;
+  const cx = SW / 2;
+  const cy = SH / 2;
 
-    this.pauseUI = [
-      this.add.text(cx, cy - 50, "CONTINUE", { fontSize: "22px", fill: "#ffffff" })
-        .setOrigin(0.5).setScrollFactor(0).setDepth(15).setInteractive()
-        .on("pointerdown", () => this.resumeGame()),
-      this.add.text(cx, cy,      "RESTART",  { fontSize: "22px", fill: "#ffaa00" })
-        .setOrigin(0.5).setScrollFactor(0).setDepth(15).setInteractive()
-        .on("pointerdown", () => this.scene.restart()),
-      this.add.text(cx, cy + 50, "QUIT",     { fontSize: "22px", fill: "#ff4444" })
-        .setOrigin(0.5).setScrollFactor(0).setDepth(15).setInteractive()
-        .on("pointerdown", () => this.scene.start("HomeScene")),
-    ];
-  }
+  // Grey overlay
+  const overlay = this.add.rectangle(cx, cy, SW, SH, 0x000000, 0.5)
+    .setScrollFactor(0).setDepth(14);
+
+  // Panel
+  const PW = 280, PH = 220;
+  const panel = this.add.graphics().setScrollFactor(0).setDepth(14);
+  panel.fillStyle(0x0a1628, 0.96);
+  panel.fillRoundedRect(cx - PW / 2, cy - PH / 2, PW, PH, 12);
+  panel.lineStyle(1, 0x224466, 1);
+  panel.strokeRoundedRect(cx - PW / 2, cy - PH / 2, PW, PH, 12);
+
+  const title = this.add.text(cx, cy - PH / 2 + 24, "⏸  PAUSED", {
+    fontSize: "20px", fill: "#ffffff", fontStyle: "bold"
+  }).setOrigin(0.5).setScrollFactor(0).setDepth(15);
+
+  const divider = this.add.graphics().setScrollFactor(0).setDepth(15);
+  divider.lineStyle(1, 0x224466, 0.6);
+  divider.lineBetween(cx - PW / 2 + 20, cy - PH / 2 + 50, cx + PW / 2 - 20, cy - PH / 2 + 50);
+
+  const btnStyle   = (col)  => ({ fontSize: "18px", fill: col, fontStyle: "bold", backgroundColor: "#0d1e30", padding: { x: 24, y: 10 } });
+  const hoverStyle = (col)  => ({ fill: "#ffffff", backgroundColor: "#1a3a55" });
+  const baseStyle  = (col)  => ({ fill: col,       backgroundColor: "#0d1e30" });
+
+  const makeBtn = (label, color, yOff, cb) => {
+    const btn = this.add.text(cx, cy - 30 + yOff, label, btnStyle(color))
+      .setOrigin(0.5).setScrollFactor(0).setDepth(15)
+      .setInteractive({ useHandCursor: true })
+      .on("pointerover",  () => btn.setStyle(hoverStyle(color)))
+      .on("pointerout",   () => btn.setStyle(baseStyle(color)))
+      .on("pointerdown",  cb);
+    return btn;
+  };
+
+  const continueBtn = makeBtn("▶  CONTINUE", "#00ff88",   0,  () => this.resumeGame());
+  const restartBtn  = makeBtn("↺  RESTART",  "#ffaa00",  58,  () => this.scene.restart());
+  const quitBtn     = makeBtn("⏏  QUIT",     "#ff4444", 116,  () => this.scene.start("HomeScene"));
+
+  this.pauseUI = [overlay, panel, title, divider, continueBtn, restartBtn, quitBtn];
+}
 
   // ═══════════════════════════════════════════════════════
   // HIT EFFECT
